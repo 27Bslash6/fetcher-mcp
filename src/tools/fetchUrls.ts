@@ -2,6 +2,7 @@ import { Browser, BrowserContext, Page } from "playwright";
 import pLimit from "p-limit";
 import { WebContentProcessor } from "../services/webContentProcessor.js";
 import { BrowserService } from "../services/browserService.js";
+import { BrowserPoolService } from "../services/browserPoolService.js";
 import { FetchOptions, FetchResult } from "../types/index.js";
 import { logger } from "../utils/logger.js";
 
@@ -116,24 +117,20 @@ export async function fetchUrls(args: any) {
     logger.debug(`Debug mode enabled for URLs: ${urls.join(", ")}`);
   }
 
-  let browser: Browser | null = null;
-  let context: BrowserContext | null = null;
+  const pool = BrowserPoolService.getInstance();
+  const processor = new WebContentProcessor(options, "[FetchURLs]");
+
   try {
-    // Create a stealth browser with anti-detection measures
-    browser = await browserService.createBrowser();
-
-    // Create a stealth browser context
-    const contextResult = await browserService.createContext(browser);
-    context = contextResult.context;
-    const viewport = contextResult.viewport;
-
-    const processor = new WebContentProcessor(options, "[FetchURLs]");
-
     const results = await Promise.all(
       urls.map((url, index) =>
         limit(async () => {
+          const handle = await pool.acquireBrowser(browserService, options);
+
           // Create a new page with human-like behavior
-          const page = await browserService.createPage(context!, viewport);
+          const page = await browserService.createPage(
+            handle.context,
+            handle.viewport
+          );
 
           try {
             const result = await processor.processPageContent(page, url);
@@ -142,10 +139,15 @@ export async function fetchUrls(args: any) {
             if (!browserService.isInDebugMode()) {
               await page
                 .close()
-                .catch((e) => logger.error(`Failed to close page: ${e.message}`));
+                .catch((e) =>
+                  logger.error(`Failed to close page: ${e.message}`)
+                );
             } else {
               logger.debug(`Page kept open for debugging. URL: ${url}`);
             }
+
+            // Release browser back to pool
+            await handle.releaseContext();
           }
         })
       )
@@ -162,8 +164,8 @@ export async function fetchUrls(args: any) {
     return {
       content: [{ type: "text", text: combinedResults }],
     };
-  } finally {
-    // Clean up browser resources
-    await browserService.cleanup(browser, null, context);
+  } catch (error) {
+    logger.error(`[FetchURLs] Error processing URLs: ${(error as Error).message}`);
+    throw error;
   }
 }
