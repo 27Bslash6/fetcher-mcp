@@ -1,4 +1,4 @@
-import { Browser, Page } from "playwright";
+import { Browser, BrowserContext, Page } from "playwright";
 import { WebContentProcessor } from "../services/webContentProcessor.js";
 import { BrowserService } from "../services/browserService.js";
 import { FetchOptions } from "../types/index.js";
@@ -95,11 +95,12 @@ export async function fetchUrl(args: any) {
 
   // Create browser service
   const browserService = new BrowserService(options);
-  
+
   // Create content processor
   const processor = new WebContentProcessor(options, "[FetchURL]");
   let browser: Browser | null = null;
   let page: Page | null = null;
+  let context: BrowserContext | null = null;
 
   if (browserService.isInDebugMode()) {
     logger.debug(`Debug mode enabled for URL: ${url}`);
@@ -108,9 +109,11 @@ export async function fetchUrl(args: any) {
   try {
     // Create a stealth browser with anti-detection measures
     browser = await browserService.createBrowser();
-    
+
     // Create a stealth browser context
-    const { context, viewport } = await browserService.createContext(browser);
+    const contextResult = await browserService.createContext(browser);
+    context = contextResult.context;
+    const viewport = contextResult.viewport;
 
     // Create a new page with human-like behavior
     page = await browserService.createPage(context, viewport);
@@ -123,8 +126,8 @@ export async function fetchUrl(args: any) {
     };
   } finally {
     // Clean up resources
-    await browserService.cleanup(browser, page);
-    
+    await browserService.cleanup(browser, page, context);
+
     if (browserService.isInDebugMode()) {
       logger.debug(`Browser and page kept open for debugging. URL: ${url}`);
     }
