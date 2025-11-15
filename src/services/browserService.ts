@@ -229,12 +229,17 @@ export class BrowserService {
   /**
    * Clean up resources
    */
-  public async cleanup(browser: Browser | null, page: Page | null): Promise<void> {
+  public async cleanup(browser: Browser | null, page: Page | null, context: BrowserContext | null = null): Promise<void> {
     if (!this.isDebugMode) {
       if (page) {
         await page
           .close()
           .catch((e) => logger.error(`Failed to close page: ${e.message}`));
+      }
+      if (context) {
+        await context
+          .close()
+          .catch((e) => logger.error(`Failed to close context: ${e.message}`));
       }
       if (browser) {
         await browser

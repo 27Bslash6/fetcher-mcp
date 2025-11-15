@@ -1,4 +1,4 @@
-import { Browser, Page } from "playwright";
+import { Browser, BrowserContext, Page } from "playwright";
 import { WebContentProcessor } from "../services/webContentProcessor.js";
 import { BrowserService } from "../services/browserService.js";
 import { FetchOptions, FetchResult } from "../types/index.js";
@@ -103,20 +103,23 @@ export async function fetchUrls(args: any) {
   }
 
   let browser: Browser | null = null;
+  let context: BrowserContext | null = null;
   try {
     // Create a stealth browser with anti-detection measures
     browser = await browserService.createBrowser();
-    
+
     // Create a stealth browser context
-    const { context, viewport } = await browserService.createContext(browser);
+    const contextResult = await browserService.createContext(browser);
+    context = contextResult.context;
+    const viewport = contextResult.viewport;
 
     const processor = new WebContentProcessor(options, "[FetchURLs]");
 
     const results = await Promise.all(
       urls.map(async (url, index) => {
         // Create a new page with human-like behavior
-        const page = await browserService.createPage(context, viewport);
-        
+        const page = await browserService.createPage(context!, viewport);
+
         try {
           const result = await processor.processPageContent(page, url);
           return { index, ...result } as FetchResult;
@@ -145,13 +148,6 @@ export async function fetchUrls(args: any) {
     };
   } finally {
     // Clean up browser resources
-    if (!browserService.isInDebugMode()) {
-      if (browser)
-        await browser
-          .close()
-          .catch((e) => logger.error(`Failed to close browser: ${e.message}`));
-    } else {
-      logger.debug(`Browser kept open for debugging. URLs: ${urls.join(", ")}`);
-    }
+    await browserService.cleanup(browser, null, context);
   }
 }
