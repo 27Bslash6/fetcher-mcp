@@ -1,6 +1,7 @@
 import { Browser, BrowserContext, Page } from "playwright";
 import { WebContentProcessor } from "../services/webContentProcessor.js";
 import { BrowserService } from "../services/browserService.js";
+import { BrowserPoolService } from "../services/browserPoolService.js";
 import { FetchOptions } from "../types/index.js";
 import { logger } from "../utils/logger.js";
 
@@ -98,25 +99,20 @@ export async function fetchUrl(args: any) {
 
   // Create content processor
   const processor = new WebContentProcessor(options, "[FetchURL]");
-  let browser: Browser | null = null;
   let page: Page | null = null;
-  let context: BrowserContext | null = null;
+  const pool = BrowserPoolService.getInstance();
+  let handle = null as any;
 
   if (browserService.isInDebugMode()) {
     logger.debug(`Debug mode enabled for URL: ${url}`);
   }
 
   try {
-    // Create a stealth browser with anti-detection measures
-    browser = await browserService.createBrowser();
-
-    // Create a stealth browser context
-    const contextResult = await browserService.createContext(browser);
-    context = contextResult.context;
-    const viewport = contextResult.viewport;
+    // Acquire browser from pool
+    handle = await pool.acquireBrowser(browserService, options);
 
     // Create a new page with human-like behavior
-    page = await browserService.createPage(context, viewport);
+    page = await browserService.createPage(handle.context, handle.viewport);
 
     // Process page content
     const result = await processor.processPageContent(page, url);
@@ -125,8 +121,17 @@ export async function fetchUrl(args: any) {
       content: [{ type: "text", text: result.content }],
     };
   } finally {
-    // Clean up resources
-    await browserService.cleanup(browser, page, context);
+    // Clean up page
+    if (page && !browserService.isInDebugMode()) {
+      await page
+        .close()
+        .catch((e) => logger.error(`Failed to close page: ${e.message}`));
+    }
+
+    // Release browser back to pool
+    if (handle) {
+      await handle.releaseContext();
+    }
 
     if (browserService.isInDebugMode()) {
       logger.debug(`Browser and page kept open for debugging. URL: ${url}`);
