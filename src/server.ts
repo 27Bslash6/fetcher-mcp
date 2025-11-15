@@ -6,6 +6,7 @@ import {
 import { tools, toolHandlers } from "./tools/index.js";
 import { TransportProvider } from "./transports/types.js";
 import { logger } from "./utils/logger.js";
+import { BrowserPoolService } from "./services/browserPoolService.js";
 
 /**
  * Create MCP server instance
@@ -54,11 +55,24 @@ function createServer() {
  * @param transportProvider Transport provider
  */
 function setupProcessHandlers(transportProvider: TransportProvider): void {
+  const gracefulShutdown = async () => {
+    logger.info("[Server] Starting graceful shutdown...");
+    const pool = BrowserPoolService.getInstance();
+
+    try {
+      await pool.shutdown();
+      logger.info("[Server] Browser pool shut down successfully");
+    } catch (err: any) {
+      logger.error(`[Server] Error shutting down pool: ${err.message}`);
+    }
+
+    return transportProvider.close();
+  };
+
   // Handle SIGINT signal (Ctrl+C)
   process.on("SIGINT", () => {
     logger.info("[Server] Received SIGINT signal, gracefully shutting down...");
-    transportProvider
-      .close()
+    gracefulShutdown()
       .then(() => process.exit(0))
       .catch((err) => {
         logger.error(`[Server] Shutdown error: ${err.message}`);
@@ -71,8 +85,7 @@ function setupProcessHandlers(transportProvider: TransportProvider): void {
     logger.info(
       "[Server] Received SIGTERM signal, gracefully shutting down..."
     );
-    transportProvider
-      .close()
+    gracefulShutdown()
       .then(() => process.exit(0))
       .catch((err) => {
         logger.error(`[Server] Shutdown error: ${err.message}`);
@@ -86,8 +99,7 @@ function setupProcessHandlers(transportProvider: TransportProvider): void {
     if (error.stack) {
       logger.error(error.stack);
     }
-    transportProvider
-      .close()
+    gracefulShutdown()
       .then(() => process.exit(1))
       .catch((err) => {
         logger.error(`[Server] Shutdown error: ${err.message}`);
