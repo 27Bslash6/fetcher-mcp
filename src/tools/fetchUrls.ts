@@ -1,4 +1,5 @@
 import { Browser, BrowserContext, Page } from "playwright";
+import pLimit from "p-limit";
 import { WebContentProcessor } from "../services/webContentProcessor.js";
 import { BrowserService } from "../services/browserService.js";
 import { FetchOptions, FetchResult } from "../types/index.js";
@@ -95,6 +96,19 @@ export async function fetchUrls(args: any) {
     debug: args?.debug,
   };
 
+  // Configure concurrency limit for page creation
+  let maxConcurrentPages = parseInt(
+    process.env.MAX_CONCURRENT_PAGES || "5",
+    10
+  );
+  if (isNaN(maxConcurrentPages) || maxConcurrentPages <= 0) {
+    logger.warn(
+      `Invalid MAX_CONCURRENT_PAGES value, using default of 5. Got: ${process.env.MAX_CONCURRENT_PAGES}`
+    );
+    maxConcurrentPages = 5;
+  }
+  const limit = pLimit(maxConcurrentPages);
+
   // Create browser service
   const browserService = new BrowserService(options);
 
@@ -116,23 +130,25 @@ export async function fetchUrls(args: any) {
     const processor = new WebContentProcessor(options, "[FetchURLs]");
 
     const results = await Promise.all(
-      urls.map(async (url, index) => {
-        // Create a new page with human-like behavior
-        const page = await browserService.createPage(context!, viewport);
+      urls.map((url, index) =>
+        limit(async () => {
+          // Create a new page with human-like behavior
+          const page = await browserService.createPage(context!, viewport);
 
-        try {
-          const result = await processor.processPageContent(page, url);
-          return { index, ...result } as FetchResult;
-        } finally {
-          if (!browserService.isInDebugMode()) {
-            await page
-              .close()
-              .catch((e) => logger.error(`Failed to close page: ${e.message}`));
-          } else {
-            logger.debug(`Page kept open for debugging. URL: ${url}`);
+          try {
+            const result = await processor.processPageContent(page, url);
+            return { index, ...result } as FetchResult;
+          } finally {
+            if (!browserService.isInDebugMode()) {
+              await page
+                .close()
+                .catch((e) => logger.error(`Failed to close page: ${e.message}`));
+            } else {
+              logger.debug(`Page kept open for debugging. URL: ${url}`);
+            }
           }
-        }
-      })
+        })
+      )
     );
 
     results.sort((a, b) => (a.index || 0) - (b.index || 0));
