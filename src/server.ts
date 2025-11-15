@@ -55,29 +55,44 @@ function createServer() {
  */
 function setupProcessHandlers(transportProvider: TransportProvider): void {
   // Handle SIGINT signal (Ctrl+C)
-  process.on("SIGINT", async () => {
+  process.on("SIGINT", () => {
     logger.info("[Server] Received SIGINT signal, gracefully shutting down...");
-    await transportProvider.close();
-    process.exit(0);
+    transportProvider
+      .close()
+      .then(() => process.exit(0))
+      .catch((err) => {
+        logger.error(`[Server] Shutdown error: ${err.message}`);
+        process.exit(1);
+      });
   });
 
   // Handle SIGTERM signal
-  process.on("SIGTERM", async () => {
+  process.on("SIGTERM", () => {
     logger.info(
       "[Server] Received SIGTERM signal, gracefully shutting down..."
     );
-    await transportProvider.close();
-    process.exit(0);
+    transportProvider
+      .close()
+      .then(() => process.exit(0))
+      .catch((err) => {
+        logger.error(`[Server] Shutdown error: ${err.message}`);
+        process.exit(1);
+      });
   });
 
   // Handle uncaught exceptions
-  process.on("uncaughtException", async (error) => {
+  process.on("uncaughtException", (error) => {
     logger.error(`[Server] Uncaught exception: ${error.message}`);
     if (error.stack) {
       logger.error(error.stack);
     }
-    await transportProvider.close();
-    process.exit(1);
+    transportProvider
+      .close()
+      .then(() => process.exit(1))
+      .catch((err) => {
+        logger.error(`[Server] Shutdown error: ${err.message}`);
+        process.exit(1);
+      });
   });
 }
 
